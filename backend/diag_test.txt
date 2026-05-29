@@ -1,0 +1,1 @@
+﻿CPU=0.4 Procs=218 Services=270 Disks=2 Events=50 Warnings=1 Adapters=2 Hardware=6 Runtimes=6 Patches=7 TCP=5
