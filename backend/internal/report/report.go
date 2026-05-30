@@ -32,16 +32,24 @@ func CSV(b Bundle) (string, error) {
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM so Excel reads Chinese correctly
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"类别", "时间", "级别", "模块", "描述", "详情", "修复建议"})
+	_ = w.Write([]string{"类别", "时间", "级别", "模块", "描述", "详情", "解决方法", "命令"})
 
 	if b.Security != nil {
 		for _, f := range b.Security.Findings {
-			_ = w.Write([]string{"安全", f.Time, sevName(f.Sev), f.Cat, f.Desc, f.Detail, f.Fix})
+			fix := f.Fix
+			if len(f.Steps) > 0 {
+				fix = strings.Join(f.Steps, " / ")
+			}
+			_ = w.Write([]string{"安全", f.Time, sevName(f.Sev), f.Cat, f.Desc, f.Detail, fix, f.Cmd})
 		}
 	}
 	if b.Diag != nil {
 		for _, d := range b.Diag.Warnings {
-			_ = w.Write([]string{"诊断", b.Diag.ScanTime, sevName(d.Sev), "系统诊断", d.Desc, d.Result, d.Fix})
+			_ = w.Write([]string{"诊断", b.Diag.ScanTime, sevName(d.Sev), "系统诊断", d.Desc, d.Result, d.Fix, ""})
+		}
+		// Reliability events.
+		for _, e := range b.Diag.Reliability.Events {
+			_ = w.Write([]string{"可靠性", e.Time, sevName(e.Sev), e.Type, e.Source, e.Detail, e.Fix, ""})
 		}
 	}
 	w.Flush()
@@ -106,10 +114,76 @@ func HTML(b Bundle) string {
 		sb.WriteString(`<h2>🔬 系统诊断</h2>`)
 		sb.WriteString(`<table>`)
 		sb.WriteString(fmt.Sprintf("<tr><th>CPU 使用率</th><td>%.1f%%</td></tr>", d.Data.CPU))
+		if d.Data.Counters {
+			sb.WriteString(fmt.Sprintf("<tr><th>　用户 / 内核 / 中断</th><td>%.1f%% / %.1f%% / %.1f%%</td></tr>", d.Data.CPUUser, d.Data.CPUKernel, d.Data.CPUInterrupt))
+			sb.WriteString(fmt.Sprintf("<tr><th>处理器队列长度</th><td>%.0f</td></tr>", d.Data.CPUQueue))
+		}
 		sb.WriteString(fmt.Sprintf("<tr><th>内存使用率</th><td>%.1f%% (%.1f/%.1f GB)</td></tr>", d.Data.Mem, d.Data.MemUsed, d.Data.MemTotal))
+		if d.Data.Counters {
+			sb.WriteString(fmt.Sprintf("<tr><th>已提交内存</th><td>%.1f / %.1f GB</td></tr>", d.Data.MemCommit, d.Data.CommitLimit))
+			sb.WriteString(fmt.Sprintf("<tr><th>页面错误/秒</th><td>%d</td></tr>", d.Data.PageFaults))
+			sb.WriteString(fmt.Sprintf("<tr><th>上下文切换/秒</th><td>%d</td></tr>", d.Data.CtxSwitch))
+		}
 		sb.WriteString(fmt.Sprintf("<tr><th>磁盘 C: 使用率</th><td>%.1f%%</td></tr>", d.Data.Disk))
+		if d.Data.Counters {
+			sb.WriteString(fmt.Sprintf("<tr><th>磁盘队列 / 活动时间</th><td>%.2f / %.1f%%</td></tr>", d.Data.DiskQ, d.Data.DiskBusy))
+		}
 		sb.WriteString(fmt.Sprintf("<tr><th>网络延迟</th><td>%.1f ms</td></tr>", d.Data.NetLatency))
+		sb.WriteString(fmt.Sprintf("<tr><th>磁盘 S.M.A.R.T.</th><td>%s</td></tr>", html.EscapeString(d.Data.DiskSmart)))
 		sb.WriteString(`</table>`)
+
+		// Physical disk health.
+		if len(d.PhysDisks) > 0 {
+			sb.WriteString(`<h3>物理磁盘健康</h3><table><tr><th>磁盘</th><th>类型</th><th>接口</th><th>容量</th><th>健康</th><th>S.M.A.R.T.</th><th>温度</th><th>磨损</th></tr>`)
+			for _, pd := range d.PhysDisks {
+				temp := "—"
+				if pd.Temp > 0 {
+					temp = fmt.Sprintf("%d °C", pd.Temp)
+				}
+				wear := "—"
+				if pd.Wear > 0 {
+					wear = fmt.Sprintf("%d%%", pd.Wear)
+				}
+				sb.WriteString("<tr><td>" + html.EscapeString(pd.Name) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(pd.Media) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(pd.Bus) + "</td>")
+				sb.WriteString(fmt.Sprintf("<td>%.1f GB</td>", pd.SizeGB))
+				sb.WriteString("<td>" + html.EscapeString(pd.Health) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(pd.Smart) + "</td>")
+				sb.WriteString("<td>" + temp + "</td><td>" + wear + "</td></tr>")
+			}
+			sb.WriteString(`</table>`)
+		}
+
+		// Problem devices.
+		if len(d.ProblemDevs) > 0 {
+			sb.WriteString(`<h3>问题设备</h3><table><tr><th>设备</th><th>类别</th><th>错误代码</th><th>问题</th></tr>`)
+			for _, dev := range d.ProblemDevs {
+				sb.WriteString("<tr><td>" + html.EscapeString(dev.Name) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(dev.Class) + "</td>")
+				sb.WriteString(fmt.Sprintf("<td>%d</td>", dev.ErrorCode))
+				sb.WriteString("<td>" + html.EscapeString(dev.Problem) + "</td></tr>")
+			}
+			sb.WriteString(`</table>`)
+		}
+
+		// Reliability (stability) summary.
+		rel := d.Reliability
+		sb.WriteString(`<h3>系统可靠性</h3><table>`)
+		sb.WriteString(fmt.Sprintf("<tr><th style='width:160px'>稳定性指数</th><td>%.1f / 10 — %s (近 %d 天)</td></tr>", rel.Index, html.EscapeString(rel.Level), rel.WindowDays))
+		sb.WriteString(fmt.Sprintf("<tr><th>统计</th><td>应用崩溃 %d · 应用无响应 %d · 蓝屏 %d · 服务故障 %d · 异常关机 %d</td></tr>",
+			rel.AppCrashes, rel.AppHangs, rel.BSODs, rel.SvcFailures, rel.UngracefulShutdowns))
+		sb.WriteString(`</table>`)
+		if len(rel.Events) > 0 {
+			sb.WriteString(`<table><tr><th>时间</th><th>类型</th><th>详情</th><th>解决方法</th></tr>`)
+			for _, ev := range rel.Events {
+				sb.WriteString("<tr><td>" + html.EscapeString(ev.Time) + "</td>")
+				sb.WriteString(`<td class="` + ev.Sev + `">` + html.EscapeString(ev.Type) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(ev.Detail) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(ev.Fix) + "</td></tr>")
+			}
+			sb.WriteString(`</table>`)
+		}
 
 		sb.WriteString(`<h3>诊断警告</h3><table><tr><th>级别</th><th>描述</th><th>结果</th><th>建议</th></tr>`)
 		if len(d.Warnings) == 0 {

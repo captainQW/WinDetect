@@ -1,0 +1,10 @@
+﻿counters=True
+cpuUser=2 cpuKernel=3 cpuInterrupt=1 cpuQueue=0
+ctx=10366 sysCalls=21330 interrupts=9420 pageFaults=25372
+memAvailMB=2866 memCommit=6.7 commitLimit=9.9 poolPaged=576.3 poolNonPaged=319.4
+diskQ=0 diskBusy=0 diskIops=0 diskRdMs=0 tcpRetrans=0 tcpConn=9 dnsMs=169.7
+smart=正常
+physDisks=2 problemDevs=0 warnings=1
+  DISK: Red Hat VirtIO | 未知 | SCSI | 320GB | 正常 | 正常
+  DISK: Red Hat VirtIO | 未知 | SCSI | 60GB | 正常 | 正常
+  WARN[medium]: 网络延迟偏高 -> 133 ms

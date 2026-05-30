@@ -15,6 +15,7 @@ import ServiceView from './views/ServiceView.vue'
 import EventView from './views/EventView.vue'
 import HardwareView from './views/HardwareView.vue'
 import SoftwareView from './views/SoftwareView.vue'
+import ReliabilityView from './views/ReliabilityView.vue'
 import ChecklistView from './views/ChecklistView.vue'
 import ReportView from './views/ReportView.vue'
 
@@ -42,6 +43,7 @@ const diagNav = [
   { id: 'process', icon: '⚙️', name: '进程' },
   { id: 'service', icon: '🔧', name: '服务' },
   { id: 'event', icon: '📋', name: '事件日志' },
+  { id: 'reliability', icon: '📉', name: '可靠性' },
   { id: 'hardware', icon: '🖥️', name: '硬件信息' },
   { id: 'software', icon: '📦', name: '软件环境' }
 ]
@@ -75,6 +77,7 @@ const pageTitles = {
   cpu: 'CPU 分析', memory: '内存分析', disk: '磁盘分析',
   'network-diag': '网络分析', process: '进程详情', service: '服务状态',
   event: '事件日志', hardware: '硬件信息', software: '软件环境',
+  reliability: '可靠性检查',
   checklist: '系统检查清单', report: '导出报告'
 }
 
@@ -117,6 +120,7 @@ const viewComp = computed(() => {
     case 'process': return ProcessView
     case 'service': return ServiceView
     case 'event': return EventView
+    case 'reliability': return ReliabilityView
     case 'hardware': return HardwareView
     case 'software': return SoftwareView
     case 'checklist': return ChecklistView

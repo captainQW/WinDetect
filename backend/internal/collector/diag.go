@@ -2,16 +2,17 @@ package collector
 
 import (
 	"fmt"
+	stdnet "net"
 	"sort"
 	"strings"
 	"time"
 
 	"windetect/internal/models"
+	"windetect/internal/winutil"
 
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
-	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
@@ -33,19 +34,42 @@ func Diagnostics() models.DiagResult {
 	res.CPUDetail = cpuDetail()
 	res.MemDetail, res.MemCompose = memDetail()
 	res.Disks = collectDisks()
-	res.DiskIO = diskIODetail(data)
 	res.Adapters = collectAdapters(data)
 	res.PingTests = collectPings()
 	res.TCPConns = collectTCP()
 	res.Services = collectServices()
 	res.Hardware = collectHardware()
+	res.PhysDisks = collectPhysicalDisks()
+	res.ProblemDevs = collectProblemDevices()
+	res.Reliability = collectReliability()
 	res.Runtimes = collectRuntimes()
 	res.SecUpdates = collectSecUpdates()
 	res.Patches = collectPatches()
 	res.Data.Events = collectEvents()
 
+	// Summarise overall S.M.A.R.T. health from the physical disks.
+	res.Data.DiskSmart = overallSmart(res.PhysDisks)
+	res.DiskIO = diskIODetail(res.Data)
+
 	res.Warnings = buildWarnings(res)
 	return res
+}
+
+// overallSmart reduces per-disk health to a single dashboard status.
+func overallSmart(disks []models.PhysDisk) string {
+	if len(disks) == 0 {
+		return "未知"
+	}
+	worst := "正常"
+	for _, d := range disks {
+		switch d.Health {
+		case "异常":
+			return "异常"
+		case "警告":
+			worst = "警告"
+		}
+	}
+	return worst
 }
 
 // collectLiveData samples CPU, memory, disk and network counters.
@@ -78,22 +102,11 @@ func collectLiveData() models.DiagData {
 	// Network throughput sampled over 1 second.
 	d.NetUp, d.NetDn = sampleNetThroughput()
 
-	// Latency to the default gateway / public DNS.
+	// Latency to a public DNS server (real ICMP round trip).
 	d.GwPing = pingMS("8.8.8.8")
 	d.NetLatency = d.GwPing
-	d.DNSMs = round1(d.GwPing * 0.6)
 
-	// Misc counters that are expensive or unavailable cheaply on Windows
-	// are derived from load + sane heuristics so the UI always has values.
-	if avg, err := load.Misc(); err == nil {
-		d.CtxSwitch = int64(avg.Ctxt)
-	}
-	if d.CtxSwitch == 0 {
-		d.CtxSwitch = int64(8000 + d.CPU*120)
-	}
-	d.SysCalls = int64(12000 + d.CPU*200)
-	d.PageFaults = int64(1500 + d.Mem*40)
-
+	// Established TCP connections (real count from the socket table).
 	if conns, err := net.Connections("tcp"); err == nil {
 		est := 0
 		for _, c := range conns {
@@ -104,25 +117,26 @@ func collectLiveData() models.DiagData {
 		d.TCPConn = est
 	}
 
-	// Disk IO counters.
-	if io, err := disk.IOCounters(); err == nil {
-		var rd, wr uint64
-		for _, c := range io {
-			rd += c.ReadBytes
-			wr += c.WriteBytes
-		}
-		_ = rd
-		_ = wr
-	}
-	d.DiskRd = round1(d.CPU * 0.15)
-	d.DiskWr = round1(d.CPU * 0.1)
-	d.DiskQ = round1(d.CPU / 50)
-	d.DiskRdMs = round1(2 + d.Disk/20)
-	d.DiskWrMs = round1(3 + d.Disk/25)
-	d.TCPRetrans = round1(0.1 + d.NetLatency/500)
-	d.DPCLat = round1(20 + d.CPU)
+	// Overlay the real OS performance counters (CPU user/kernel split,
+	// context switches, page faults, disk queue/latency, TCP retransmits…).
+	// When the perf provider is unavailable d.Counters stays false and the
+	// UI suppresses the affected rows rather than showing fabricated numbers.
+	applyPerfCounters(&d)
+
+	// Measure DNS resolution latency directly when counters are present,
+	// otherwise leave it at zero (the UI hides it).
+	d.DNSMs = measureDNS()
 
 	return d
+}
+
+// measureDNS times a single DNS lookup of a well-known host in milliseconds.
+func measureDNS() float64 {
+	start := time.Now()
+	if _, err := stdnet.LookupHost("www.microsoft.com"); err != nil {
+		return 0
+	}
+	return round1(float64(time.Since(start).Microseconds()) / 1000)
 }
 
 func sampleNetThroughput() (up, dn float64) {
@@ -254,13 +268,20 @@ func collectDisks() []models.DiskInfo {
 }
 
 func diskIODetail(d models.DiagData) []models.KV {
-	return []models.KV{
+	kv := []models.KV{
 		{K: "磁盘读取/秒", V: fmt.Sprintf("%.1f MB/s", d.DiskRd)},
 		{K: "磁盘写入/秒", V: fmt.Sprintf("%.1f MB/s", d.DiskWr)},
 		{K: "磁盘队列长度", V: fmt.Sprintf("%.2f", d.DiskQ)},
 		{K: "读取延迟", V: fmt.Sprintf("%.1f ms", d.DiskRdMs)},
 		{K: "写入延迟", V: fmt.Sprintf("%.1f ms", d.DiskWrMs)},
 	}
+	if d.Counters {
+		kv = append(kv,
+			models.KV{K: "磁盘活动时间", V: fmt.Sprintf("%.1f%%", d.DiskBusy)},
+			models.KV{K: "磁盘传输/秒 (IOPS)", V: fmt.Sprintf("%.0f", d.DiskIOPS)},
+		)
+	}
+	return kv
 }
 
 func collectPings() []models.PingTest {
@@ -306,14 +327,47 @@ func collectTCP() []models.TCPConn {
 func collectHardware() []models.HWSection {
 	secs := []models.HWSection{}
 	if hi, err := host.Info(); err == nil {
-		secs = append(secs, models.HWSection{
-			Icon: "🖥️", Title: "系统",
-			KV: []models.KV{
+		kv := []models.KV{
+			{K: "主机名", V: hi.Hostname},
+			{K: "操作系统", V: fmt.Sprintf("%s %s", hi.Platform, hi.PlatformVersion)},
+			{K: "内核版本", V: hi.KernelVersion},
+			{K: "架构", V: hi.KernelArch},
+			{K: "运行时间", V: fmt.Sprintf("%.1f 小时", float64(hi.Uptime)/3600)},
+		}
+		// Augment with perfmon-style system identity from WMI.
+		var os struct {
+			Caption     string `json:"Caption"`
+			Version     string `json:"Version"`
+			Build       string `json:"BuildNumber"`
+			InstallDate string `json:"InstallDate"`
+			LastBoot    string `json:"LastBootUpTime"`
+		}
+		if err := winutil.RunPSJSON(`Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,@{N='InstallDate';E={$_.InstallDate.ToString('yyyy-MM-dd')}},@{N='LastBootUpTime';E={$_.LastBootUpTime.ToString('yyyy-MM-dd HH:mm')}} | ConvertTo-Json -Compress`, &os); err == nil && os.Caption != "" {
+			kv = []models.KV{
 				{K: "主机名", V: hi.Hostname},
-				{K: "操作系统", V: fmt.Sprintf("%s %s", hi.Platform, hi.PlatformVersion)},
-				{K: "内核版本", V: hi.KernelVersion},
+				{K: "操作系统", V: strings.TrimSpace(os.Caption)},
+				{K: "版本号", V: fmt.Sprintf("%s (Build %s)", os.Version, os.Build)},
 				{K: "架构", V: hi.KernelArch},
+				{K: "安装日期", V: os.InstallDate},
+				{K: "上次启动", V: os.LastBoot},
 				{K: "运行时间", V: fmt.Sprintf("%.1f 小时", float64(hi.Uptime)/3600)},
+			}
+		}
+		secs = append(secs, models.HWSection{Icon: "🖥️", Title: "系统", KV: kv})
+	}
+	// Computer manufacturer / model (perfmon system summary).
+	var cs struct {
+		Manufacturer string `json:"Manufacturer"`
+		Model        string `json:"Model"`
+		SystemType   string `json:"SystemType"`
+	}
+	if err := winutil.RunPSJSON(`Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer,Model,SystemType | ConvertTo-Json -Compress`, &cs); err == nil && (cs.Manufacturer != "" || cs.Model != "") {
+		secs = append(secs, models.HWSection{
+			Icon: "🏷️", Title: "计算机",
+			KV: []models.KV{
+				{K: "厂商", V: cs.Manufacturer},
+				{K: "型号", V: cs.Model},
+				{K: "系统类型", V: cs.SystemType},
 			},
 		})
 	}
@@ -359,6 +413,70 @@ func buildWarnings(res models.DiagResult) []models.DiagWarning {
 		w = append(w, models.DiagWarning{Sev: models.SevMedium, Desc: "网络延迟偏高",
 			Result: fmt.Sprintf("%.0f ms", d.NetLatency), Fix: "检查网络连接质量"})
 	}
+
+	// Real performance-counter driven warnings (parity with perfmon /report).
+	if d.Counters {
+		if d.CPUQueue >= 4 {
+			w = append(w, models.DiagWarning{Sev: models.SevMedium, Desc: "处理器队列偏长",
+				Result: fmt.Sprintf("队列长度 %.0f", d.CPUQueue),
+				Fix:    "存在 CPU 资源争用，检查高占用进程或增加核心"})
+		}
+		if d.DiskQ >= 5 {
+			w = append(w, models.DiagWarning{Sev: models.SevMedium, Desc: "磁盘队列长度过高",
+				Result: fmt.Sprintf("队列 %.1f", d.DiskQ),
+				Fix:    "磁盘 I/O 可能成为瓶颈，检查高 I/O 进程或升级存储"})
+		}
+		if d.CommitLimit > 0 && d.MemCommit/d.CommitLimit > 0.9 {
+			w = append(w, models.DiagWarning{Sev: models.SevHigh, Desc: "已提交内存接近上限",
+				Result: fmt.Sprintf("%.1f / %.1f GB", d.MemCommit, d.CommitLimit),
+				Fix:    "增加物理内存或扩大页面文件"})
+		}
+	}
+
+	// Disk S.M.A.R.T. / health warnings.
+	for _, pd := range res.PhysDisks {
+		switch pd.Health {
+		case "异常":
+			w = append(w, models.DiagWarning{Sev: models.SevCritical, Desc: "磁盘健康状态异常",
+				Result: pd.Name + " — " + pd.Smart, Fix: "立即备份数据并更换磁盘"})
+		case "警告":
+			w = append(w, models.DiagWarning{Sev: models.SevHigh, Desc: "磁盘健康状态警告",
+				Result: pd.Name + " — " + pd.Smart, Fix: "尽快备份数据并计划更换磁盘"})
+		}
+		if pd.Wear >= 90 {
+			w = append(w, models.DiagWarning{Sev: models.SevMedium, Desc: "固态硬盘磨损偏高",
+				Result: fmt.Sprintf("%s 磨损 %d%%", pd.Name, pd.Wear),
+				Fix:    "SSD 写入寿命接近上限，建议规划更换"})
+		}
+	}
+
+	// Device Manager problem devices (perfmon flags these prominently).
+	if n := len(res.ProblemDevs); n > 0 {
+		first := res.ProblemDevs[0]
+		w = append(w, models.DiagWarning{Sev: models.SevMedium,
+			Desc:   fmt.Sprintf("检测到 %d 个问题设备", n),
+			Result: fmt.Sprintf("%s: %s", first.Name, first.Problem),
+			Fix:    "在设备管理器中更新或重新安装相关驱动程序"})
+	}
+
+	// System stability (Reliability Monitor parity).
+	rel := res.Reliability
+	if rel.BSODs > 0 {
+		w = append(w, models.DiagWarning{Sev: models.SevCritical, Desc: "近期发生系统蓝屏",
+			Result: fmt.Sprintf("最近 %d 天内 %d 次", rel.WindowDays, rel.BSODs),
+			Fix:    "分析 Minidump 定位故障驱动，运行内存诊断 (mdsched.exe)"})
+	}
+	if rel.Index > 0 && rel.Index < 7 {
+		sev := models.SevMedium
+		if rel.Index < 4 {
+			sev = models.SevHigh
+		}
+		w = append(w, models.DiagWarning{Sev: sev, Desc: "系统稳定性偏低",
+			Result: fmt.Sprintf("稳定性指数 %.1f/10 (崩溃%d 无响应%d 服务%d 异常关机%d)",
+				rel.Index, rel.AppCrashes, rel.AppHangs, rel.SvcFailures, rel.UngracefulShutdowns),
+			Fix: "查看\"可靠性\"页定位高频故障来源并按建议修复"})
+	}
+
 	return w
 }
 

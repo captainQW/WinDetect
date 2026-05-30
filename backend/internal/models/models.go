@@ -11,13 +11,16 @@ const (
 
 // Finding represents a single security issue discovered during a scan.
 type Finding struct {
-	Time   string `json:"time"`
-	Sev    string `json:"sev"`
-	Cat    string `json:"cat"`    // module/category id label
-	CatID  string `json:"catId"`  // module id, used for per-module filtering
-	Desc   string `json:"desc"`
-	Detail string `json:"detail"`
-	Fix    string `json:"fix"`
+	Time   string   `json:"time"`
+	Sev    string   `json:"sev"`
+	Cat    string   `json:"cat"`    // module/category id label
+	CatID  string   `json:"catId"`  // module id, used for per-module filtering
+	Desc   string   `json:"desc"`
+	Detail string   `json:"detail"`
+	Fix    string   `json:"fix"`    // short summary (kept for reports/CSV)
+	Steps  []string `json:"steps"`  // ordered, detailed remediation steps
+	Cmd    string   `json:"cmd"`    // ready-to-run command (PowerShell/cmd)
+	Ref    string   `json:"ref"`    // optional reference / docs note
 }
 
 // SecurityModule describes a detection module and its discovered findings.
@@ -113,10 +116,40 @@ type ServiceInfo struct {
 
 // EventLog is a single Windows event log entry.
 type EventLog struct {
-	Time string `json:"time"`
-	Src  string `json:"src"`
-	Msg  string `json:"msg"`
-	Lv   string `json:"lv"` // critical | error | warning | info | security
+	Time   string   `json:"time"`
+	Src    string   `json:"src"`
+	Msg    string   `json:"msg"`
+	Lv     string   `json:"lv"` // critical | error | warning | info | security
+	ID     int      `json:"id"` // Windows event id
+	Cause  string   `json:"cause"`  // likely cause in plain language
+	Fix    string   `json:"fix"`    // short remediation summary
+	Steps  []string `json:"steps"`  // detailed remediation steps
+	Cmd    string   `json:"cmd"`    // optional command to investigate/fix
+}
+
+// ReliabilityEvent is a stability-relevant record (crash, hang, install…)
+// used to build a Windows "Reliability Monitor"-style timeline.
+type ReliabilityEvent struct {
+	Time   string `json:"time"`
+	Type   string `json:"type"`   // 应用崩溃 / 应用无响应 / 蓝屏 / 系统错误 / 更新 / 警告
+	Sev    string `json:"sev"`    // critical | error | medium | info
+	Source string `json:"source"`
+	Detail string `json:"detail"`
+	Fix    string `json:"fix"`
+}
+
+// ReliabilityResult summarises system stability over the recent period,
+// mirroring the data behind Windows Reliability Monitor (perfmon /rel).
+type ReliabilityResult struct {
+	Index       float64            `json:"index"`       // 1-10 stability index estimate
+	Level       string             `json:"level"`       // 稳定 / 一般 / 不稳定
+	WindowDays  int                `json:"windowDays"`  // analysis window in days
+	AppCrashes  int                `json:"appCrashes"`
+	AppHangs    int                `json:"appHangs"`
+	BSODs       int                `json:"bsods"`
+	SvcFailures int                `json:"svcFailures"`
+	UngracefulShutdowns int        `json:"ungracefulShutdowns"`
+	Events      []ReliabilityEvent `json:"events"`
 }
 
 // HWSection is a labelled group of hardware key/values.
@@ -124,6 +157,32 @@ type HWSection struct {
 	Icon  string `json:"icon"`
 	Title string `json:"title"`
 	KV    []KV   `json:"kv"`
+}
+
+// PhysDisk describes a physical disk with health / reliability data,
+// mirroring the "Disk" section of a perfmon system diagnostics report.
+type PhysDisk struct {
+	Name        string  `json:"name"`
+	Media       string  `json:"media"` // SSD / HDD / Unspecified
+	Bus         string  `json:"bus"`   // NVMe / SATA / USB ...
+	SizeGB      float64 `json:"sizeGB"`
+	Health      string  `json:"health"` // 正常 / 警告 / 异常
+	Smart       string  `json:"smart"`  // S.M.A.R.T. summary
+	Temp        int     `json:"temp"`   // °C, 0 if unknown
+	Wear        int     `json:"wear"`   // % wear (SSD), 0 if unknown
+	ReadErrors  int64   `json:"readErrors"`
+	WriteErrors int64   `json:"writeErrors"`
+	PowerOnHrs  int64   `json:"powerOnHours"`
+}
+
+// ProblemDevice is a Device Manager device reporting an error, matching the
+// "problem devices" warnings produced by perfmon /report.
+type ProblemDevice struct {
+	Name      string `json:"name"`
+	Class     string `json:"class"`
+	Status    string `json:"status"`
+	ErrorCode int    `json:"errorCode"`
+	Problem   string `json:"problem"`
 }
 
 // Patch is a pending Windows update.
@@ -155,11 +214,26 @@ type DiagData struct {
 	PageFaults int64  `json:"pageFaults"`
 	PageFile  float64 `json:"pageFile"`
 
+	// CPU breakdown (real, from perf counters when available).
+	CPUUser   float64 `json:"cpuUser"`   // % user/processor time
+	CPUKernel float64 `json:"cpuKernel"` // % privileged time
+	CPUInterrupt float64 `json:"cpuInterrupt"` // % interrupt time
+	CPUQueue  float64 `json:"cpuQueue"`  // processor queue length
+	Interrupts int64  `json:"interrupts"` // interrupts/sec
+
+	// Memory detail (real, from perf counters when available).
+	MemAvailMB   float64 `json:"memAvailMB"`
+	CommitLimit  float64 `json:"commitLimit"`  // GB
+	PoolPaged    float64 `json:"poolPaged"`    // MB
+	PoolNonPaged float64 `json:"poolNonPaged"` // MB
+
 	DiskRd   float64 `json:"diskRd"`
 	DiskWr   float64 `json:"diskWr"`
 	DiskQ    float64 `json:"diskQ"`
 	DiskRdMs float64 `json:"diskRdMs"`
 	DiskWrMs float64 `json:"diskWrMs"`
+	DiskBusy float64 `json:"diskBusy"` // % disk time
+	DiskIOPS float64 `json:"diskIops"` // transfers/sec
 
 	DNSMs      float64 `json:"dnsMs"`
 	GwPing     float64 `json:"gwPing"`
@@ -168,6 +242,10 @@ type DiagData struct {
 
 	DPCLat    float64 `json:"dpcLat"`
 	DiskSmart string  `json:"diskSmart"`
+
+	// Counters indicates whether the real-counter fields above were
+	// populated from the OS. When false the UI hides synthetic estimates.
+	Counters bool `json:"counters"`
 
 	Events []EventLog `json:"events"`
 }
@@ -198,6 +276,9 @@ type DiagResult struct {
 	TCPConns    []TCPConn      `json:"tcpConns"`
 	Services    []ServiceInfo  `json:"services"`
 	Hardware    []HWSection    `json:"hardware"`
+	PhysDisks   []PhysDisk     `json:"physDisks"`
+	ProblemDevs []ProblemDevice `json:"problemDevs"`
+	Reliability ReliabilityResult `json:"reliability"`
 	Runtimes    []KV           `json:"runtimes"`
 	SecUpdates  []KV           `json:"secUpdates"`
 	Patches     []Patch        `json:"patches"`

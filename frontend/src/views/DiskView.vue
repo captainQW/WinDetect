@@ -7,6 +7,14 @@ const disks = computed(() => diag.value ? diag.value.disks : [])
 const diskIO = computed(() => diag.value ? diag.value.diskIo : [])
 const topIO = computed(() => diag.value ? diag.value.topIo : [])
 const smart = computed(() => diag.value ? diag.value.data.diskSmart : '')
+const physDisks = computed(() => diag.value ? (diag.value.physDisks || []) : [])
+
+function healthColor(h) {
+  if (h === '正常') return 'var(--green)'
+  if (h === '警告') return 'var(--orange)'
+  if (h === '异常') return 'var(--red)'
+  return 'var(--text-dim)'
+}
 </script>
 
 <template>
@@ -43,6 +51,28 @@ const smart = computed(() => diag.value ? diag.value.data.diskSmart : '')
               <span :style="{ color: smart === '正常' ? 'var(--green)' : 'var(--orange)' }">✅ {{ smart }}</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div v-if="physDisks.length" class="card" style="margin-bottom:16px">
+        <h3>🩺 物理磁盘健康 (S.M.A.R.T.)</h3>
+        <div class="table-wrap" style="margin-top:12px">
+          <table>
+            <thead><tr><th>磁盘</th><th>类型</th><th>接口</th><th>容量</th><th>健康</th><th>S.M.A.R.T.</th><th>温度</th><th>磨损</th><th>通电时间</th></tr></thead>
+            <tbody>
+              <tr v-for="(pd,i) in physDisks" :key="i">
+                <td>{{ pd.name }}</td>
+                <td>{{ pd.media }}</td>
+                <td>{{ pd.bus }}</td>
+                <td>{{ pd.sizeGB }} GB</td>
+                <td><span :style="{ color: healthColor(pd.health), fontWeight: 600 }">{{ pd.health }}</span></td>
+                <td>{{ pd.smart }}</td>
+                <td>{{ pd.temp ? pd.temp + ' °C' : '—' }}</td>
+                <td>{{ pd.wear ? pd.wear + '%' : '—' }}</td>
+                <td>{{ pd.powerOnHours ? pd.powerOnHours + ' 小时' : '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
