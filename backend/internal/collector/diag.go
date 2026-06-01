@@ -42,6 +42,8 @@ func Diagnostics() models.DiagResult {
 	res.PhysDisks = collectPhysicalDisks()
 	res.ProblemDevs = collectProblemDevices()
 	res.Reliability = collectReliability()
+	res.Risk = collectRiskSnapshot()
+	res.Autoruns = collectAutoruns()
 	res.Runtimes = collectRuntimes()
 	res.SecUpdates = collectSecUpdates()
 	res.Patches = collectPatches()
@@ -475,6 +477,31 @@ func buildWarnings(res models.DiagResult) []models.DiagWarning {
 			Result: fmt.Sprintf("稳定性指数 %.1f/10 (崩溃%d 无响应%d 服务%d 异常关机%d)",
 				rel.Index, rel.AppCrashes, rel.AppHangs, rel.SvcFailures, rel.UngracefulShutdowns),
 			Fix: "查看\"可靠性\"页定位高频故障来源并按建议修复"})
+	}
+
+	// Heuristic risk snapshot (ESET SysInspector-style object scoring).
+	risk := res.Risk
+	if risk.High > 0 {
+		w = append(w, models.DiagWarning{Sev: models.SevHigh, Desc: "发现高风险对象",
+			Result: fmt.Sprintf("%d 个高风险对象 (进程/驱动/计划任务)", risk.High),
+			Fix:    "查看\"风险快照\"页，对高风险对象上传 VirusTotal 核实并清除"})
+	} else if risk.Medium > 0 {
+		w = append(w, models.DiagWarning{Sev: models.SevMedium, Desc: "存在可疑对象",
+			Result: fmt.Sprintf("%d 个中风险对象待核实", risk.Medium),
+			Fix:    "查看\"风险快照\"页确认这些对象是否可信"})
+	}
+
+	// Autostart entries (Sysinternals Autoruns-style persistence inspection).
+	autoHigh := 0
+	for _, a := range res.Autoruns {
+		if a.Risk == "high" {
+			autoHigh++
+		}
+	}
+	if autoHigh > 0 {
+		w = append(w, models.DiagWarning{Sev: models.SevHigh, Desc: "发现高风险自启动项",
+			Result: fmt.Sprintf("%d 个可疑自启动项 (未签名/异常位置/映像劫持)", autoHigh),
+			Fix:    "查看\"自启动项\"页核实来源，移除未知或恶意的持久化条目"})
 	}
 
 	return w

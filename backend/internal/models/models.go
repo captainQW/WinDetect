@@ -152,6 +152,52 @@ type ReliabilityResult struct {
 	Events      []ReliabilityEvent `json:"events"`
 }
 
+// RiskObject is a single inspected object (process, driver, scheduled task,
+// startup item…) with a heuristic risk score, inspired by ESET SysInspector's
+// per-object color-coded risk model.
+type RiskObject struct {
+	Kind      string   `json:"kind"`      // process | driver | task | startup
+	KindLabel string   `json:"kindLabel"` // 进程 / 内核驱动 / 计划任务 / 启动项
+	Name      string   `json:"name"`
+	Path      string   `json:"path"`
+	Publisher string   `json:"publisher"`
+	Signature string   `json:"signature"` // 已签名(可信) / 已签名 / 未签名 / 签名无效 / 未知
+	Signed    bool     `json:"signed"`
+	PID       int32    `json:"pid"`
+	Score     int      `json:"score"`     // 1-9 (9 = highest risk), ESET-style
+	Level     string   `json:"level"`     // safe | low | medium | high
+	Reasons   []string `json:"reasons"`   // why this score was assigned
+	Fix       string   `json:"fix"`       // recommended action
+}
+
+// RiskSnapshot aggregates all inspected objects with risk statistics,
+// modelled on ESET SysInspector's filterable system snapshot.
+type RiskSnapshot struct {
+	ScanTime  string       `json:"scanTime"`
+	Total     int          `json:"total"`
+	Safe      int          `json:"safe"`
+	Low       int          `json:"low"`
+	Medium    int          `json:"medium"`
+	High      int          `json:"high"`
+	Unsigned  int          `json:"unsigned"`
+	TopScore  int          `json:"topScore"`
+	Objects   []RiskObject `json:"objects"`
+}
+
+// AutorunEntry is a single auto-start item discovered across the many Windows
+// persistence locations Sysinternals Autoruns inspects (Run keys, Winlogon,
+// services, startup folders, image hijacks, etc.), with signature info.
+type AutorunEntry struct {
+	Category  string `json:"category"`  // 注册表 Run / Winlogon / 服务 / 启动文件夹 / 映像劫持 …
+	Location  string `json:"location"`  // the registry path or folder
+	Name      string `json:"name"`
+	Command   string `json:"command"`
+	Publisher string `json:"publisher"`
+	Signature string `json:"signature"` // 已签名 / 未签名 / 签名无效 / 未知
+	Signed    bool   `json:"signed"`
+	Risk      string `json:"risk"` // safe | low | medium | high
+}
+
 // HWSection is a labelled group of hardware key/values.
 type HWSection struct {
 	Icon  string `json:"icon"`
@@ -279,6 +325,8 @@ type DiagResult struct {
 	PhysDisks   []PhysDisk     `json:"physDisks"`
 	ProblemDevs []ProblemDevice `json:"problemDevs"`
 	Reliability ReliabilityResult `json:"reliability"`
+	Risk        RiskSnapshot   `json:"risk"`
+	Autoruns    []AutorunEntry `json:"autoruns"`
 	Runtimes    []KV           `json:"runtimes"`
 	SecUpdates  []KV           `json:"secUpdates"`
 	Patches     []Patch        `json:"patches"`

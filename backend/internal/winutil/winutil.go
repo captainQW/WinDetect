@@ -58,6 +58,19 @@ func RunPSJSON(script string, v interface{}) error {
 	return json.Unmarshal([]byte(out), v)
 }
 
+// RunPSJSONTimeout is RunPSJSON with a caller supplied timeout, for scripts
+// that do heavier work (e.g. batched Authenticode signature checks).
+func RunPSJSONTimeout(script string, timeout time.Duration, v interface{}) error {
+	out, err := RunPSTimeout(script, timeout)
+	if err != nil && out == "" {
+		return err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil
+	}
+	return json.Unmarshal([]byte(out), v)
+}
+
 // PSError wraps a PowerShell failure with its stderr text.
 type PSError struct {
 	Stderr string

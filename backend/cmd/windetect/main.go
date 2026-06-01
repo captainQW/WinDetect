@@ -20,7 +20,7 @@ func main() {
 		Addr:         *addr,
 		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 120 * time.Second, // scans can take a while
+		WriteTimeout: 240 * time.Second, // full scans (incl. signature checks) can take a while
 		IdleTimeout:  60 * time.Second,
 	}
 

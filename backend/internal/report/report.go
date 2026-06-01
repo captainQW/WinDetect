@@ -185,6 +185,56 @@ func HTML(b Bundle) string {
 			sb.WriteString(`</table>`)
 		}
 
+		// Risk snapshot (ESET SysInspector-style) — list non-safe objects.
+		risk := d.Risk
+		if risk.Total > 0 {
+			sb.WriteString(fmt.Sprintf(`<h3>风险快照 (共 %d 个对象，高 %d / 中 %d / 低 %d，未签名 %d)</h3>`,
+				risk.Total, risk.High, risk.Medium, risk.Low, risk.Unsigned))
+			shown := 0
+			sb.WriteString(`<table><tr><th>评分</th><th>类型</th><th>名称</th><th>签名</th><th>发行商</th><th>路径</th></tr>`)
+			for _, o := range risk.Objects {
+				if o.Level == "safe" {
+					continue
+				}
+				sb.WriteString(fmt.Sprintf("<tr><td>%d</td>", o.Score))
+				sb.WriteString("<td>" + html.EscapeString(o.KindLabel) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(o.Name) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(o.Signature) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(o.Publisher) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(o.Path) + "</td></tr>")
+				shown++
+				if shown >= 40 {
+					break
+				}
+			}
+			if shown == 0 {
+				sb.WriteString(`<tr><td colspan="6" class="ok">所有对象均为安全级别</td></tr>`)
+			}
+			sb.WriteString(`</table>`)
+		}
+
+		// Autostart entries (Sysinternals Autoruns-style) — non-safe entries.
+		if len(d.Autoruns) > 0 {
+			sb.WriteString(`<h3>自启动项 (Autoruns)</h3>`)
+			sb.WriteString(`<table><tr><th>风险</th><th>类别</th><th>名称</th><th>签名</th><th>命令/路径</th></tr>`)
+			shown := 0
+			for _, a := range d.Autoruns {
+				if a.Risk == "safe" {
+					continue
+				}
+				sb.WriteString("<tr><td>" + html.EscapeString(autorunRiskZh(a.Risk)) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(a.Category) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(a.Name) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(a.Signature) + "</td>")
+				sb.WriteString("<td>" + html.EscapeString(a.Command) + "</td></tr>")
+				shown++
+			}
+			if shown == 0 {
+				sb.WriteString(`<tr><td colspan="5" class="ok">未发现可疑自启动项</td></tr>`)
+			}
+			sb.WriteString(`</table>`)
+		}
+
 		sb.WriteString(`<h3>诊断警告</h3><table><tr><th>级别</th><th>描述</th><th>结果</th><th>建议</th></tr>`)
 		if len(d.Warnings) == 0 {
 			sb.WriteString(`<tr><td colspan="4" class="ok">未发现诊断警告</td></tr>`)
@@ -221,4 +271,18 @@ func sevName(sev string) string {
 		return "信息"
 	}
 	return sev
+}
+
+func autorunRiskZh(r string) string {
+	switch r {
+	case "high":
+		return "高风险"
+	case "medium":
+		return "中风险"
+	case "low":
+		return "低风险"
+	case "safe":
+		return "安全"
+	}
+	return r
 }
