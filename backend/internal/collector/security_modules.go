@@ -210,7 +210,8 @@ func scanAccounts() ([]models.Finding, []map[string]string) {
 					"右键 Guest > 属性，勾选\"账户已禁用\"。",
 					"或以管理员身份运行下方命令。",
 				},
-				Cmd: "Disable-LocalUser -Name Guest",
+				Cmd:     "Disable-LocalUser -Name Guest",
+				Mitre:   "T1078.001", MitreNm: "默认账户",
 			})
 		}
 		if u.Enabled && !u.PasswordRequired {
@@ -222,7 +223,8 @@ func scanAccounts() ([]models.Finding, []map[string]string) {
 					"在\"本地安全策略\" (secpol.msc) > 账户策略 > 密码策略 中，启用\"密码必须符合复杂性要求\"。",
 					"将\"密码长度最小值\"设为 8 位以上，建议 14 位。",
 				},
-				Cmd: "net user " + u.Name + " *",
+				Cmd:     "net user " + u.Name + " *",
+				Mitre:   "T1078", MitreNm: "有效账户",
 			})
 		}
 	}
@@ -269,7 +271,8 @@ func scanNetwork() ([]models.Finding, []map[string]string) {
 					"如需远程命令行，改用 OpenSSH 服务端 (Add-WindowsCapability)。",
 					"在防火墙中阻止 23 端口的入站连接。",
 				},
-				Cmd: "Disable-WindowsOptionalFeature -Online -FeatureName TelnetServer",
+				Cmd:     "Disable-WindowsOptionalFeature -Online -FeatureName TelnetServer",
+				Mitre:   "T1021", MitreNm: "远程服务",
 			})
 		case 21:
 			findings = append(findings, models.Finding{Sev: models.SevHigh,
@@ -292,7 +295,8 @@ func scanNetwork() ([]models.Finding, []map[string]string) {
 					"考虑修改默认端口并启用账户锁定策略以防暴力破解。",
 					"非必要时运行下方命令关闭远程桌面。",
 				},
-				Cmd: "Set-ItemProperty 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server' -Name fDenyTSConnections -Value 1",
+				Cmd:     "Set-ItemProperty 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server' -Name fDenyTSConnections -Value 1",
+				Mitre:   "T1021.001", MitreNm: "远程桌面协议",
 			})
 		case 445:
 			findings = append(findings, models.Finding{Sev: models.SevMedium,
@@ -303,7 +307,8 @@ func scanNetwork() ([]models.Finding, []map[string]string) {
 					"在防火墙中阻止来自外网的 445/139 入站连接。",
 					"确认系统已安装最新的 SMB 相关安全补丁。",
 				},
-				Cmd: "Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force",
+				Cmd:     "Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force",
+				Mitre:   "T1210", MitreNm: "利用远程服务漏洞",
 			})
 		}
 	}
@@ -347,7 +352,8 @@ $items | ConvertTo-Json -Compress`
 					"确认为恶意后，运行下方命令删除注册表自启动项。",
 					"使用 Windows Defender 执行一次完整扫描。",
 				},
-				Cmd: "Remove-ItemProperty -Path '" + it.Hive + "' -Name '" + it.Name + "'",
+				Cmd:     "Remove-ItemProperty -Path '" + it.Hive + "' -Name '" + it.Name + "'",
+				Mitre:   "T1547.001", MitreNm: "注册表运行键/启动文件夹",
 			})
 		}
 	}
@@ -375,8 +381,9 @@ func scanUAC() ([]models.Finding, []map[string]string) {
 					"或在控制面板搜索\"UAC\"，将滑块调到\"始终通知\"。",
 					"修改后需重启计算机才能生效。",
 				},
-				Cmd: "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name EnableLUA -Value 1",
-				Ref: "修改后务必重启系统。",
+				Cmd:     "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name EnableLUA -Value 1",
+				Ref:     "修改后务必重启系统。",
+				Mitre:   "T1548.002", MitreNm: "绕过用户账户控制",
 			})
 		}
 	}

@@ -8,6 +8,9 @@ const expanded = ref(new Set())
 const sevNames = { critical: '严重', high: '高危', medium: '中危', low: '低危' }
 
 const findings = computed(() => store.security ? store.security.findings : [])
+const mitre = computed(() => store.security ? (store.security.mitre || []) : [])
+
+const sevClass = { critical: 'critical', high: 'high', medium: 'medium', low: 'low' }
 
 const counts = computed(() => {
   const c = { all: findings.value.length, critical: 0, high: 0, medium: 0, low: 0 }
@@ -27,7 +30,7 @@ function toggle(i) {
 }
 
 function hasSolution(f) {
-  return (f.steps && f.steps.length) || f.cmd
+  return (f.steps && f.steps.length) || f.cmd || f.mitre || f.cis || f.fix
 }
 
 const copiedIdx = ref(-1)
@@ -63,6 +66,20 @@ const chips = [
       </div>
     </div>
 
+    <!-- MITRE ATT&CK coverage -->
+    <div v-if="mitre.length" class="card mitre-card">
+      <h3>🎯 MITRE ATT&CK 技战术映射 ({{ mitre.length }})</h3>
+      <div class="mitre-grid">
+        <a v-for="m in mitre" :key="m.id" class="mitre-chip" :class="m.sev"
+           :href="'https://attack.mitre.org/techniques/' + m.id.replace('.', '/')"
+           target="_blank" rel="noopener">
+          <span class="mid">{{ m.id }}</span>
+          <span class="mname">{{ m.name }}</span>
+          <span class="mcount">×{{ m.count }}</span>
+        </a>
+      </div>
+    </div>
+
     <div class="table-wrap">
       <table>
         <thead>
@@ -87,6 +104,14 @@ const chips = [
               <td></td>
               <td colspan="5">
                 <div class="sol">
+                  <div v-if="f.mitre || f.cis" class="sol-tags">
+                    <a v-if="f.mitre" class="tag mitre"
+                       :href="'https://attack.mitre.org/techniques/' + f.mitre.replace('.', '/')"
+                       target="_blank" rel="noopener" @click.stop>
+                      🎯 {{ f.mitre }}<span v-if="f.mitreNm"> · {{ f.mitreNm }}</span>
+                    </a>
+                    <span v-if="f.cis" class="tag cis">📐 {{ f.cis }}</span>
+                  </div>
                   <div class="sol-head">🛠️ 解决方法</div>
                   <ol v-if="f.steps && f.steps.length" class="sol-steps">
                     <li v-for="(s,j) in f.steps" :key="j">{{ s }}</li>
@@ -134,4 +159,26 @@ const chips = [
 }
 .sol-copy:hover { background: var(--accent); color: #fff; }
 .sol-ref { margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+.sol-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.tag { font-size: 11.5px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); text-decoration: none; }
+.tag.mitre { background: rgba(239,68,68,.12); color: #fca5a5; }
+.tag.mitre:hover { background: rgba(239,68,68,.25); }
+.tag.cis { background: rgba(59,130,246,.12); color: #93c5fd; }
+
+.mitre-card { margin-bottom: 16px; }
+.mitre-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.mitre-chip {
+  display: flex; flex-direction: column; gap: 2px; min-width: 150px;
+  padding: 8px 12px; border-radius: 8px; text-decoration: none;
+  border: 1px solid var(--border); background: var(--panel-2);
+  border-left-width: 3px;
+}
+.mitre-chip.critical { border-left-color: #ef4444; }
+.mitre-chip.high { border-left-color: #f97316; }
+.mitre-chip.medium { border-left-color: #eab308; }
+.mitre-chip.low { border-left-color: #3b82f6; }
+.mitre-chip:hover { background: var(--panel); }
+.mitre-chip .mid { font-weight: 700; font-size: 13px; color: #fca5a5; }
+.mitre-chip .mname { font-size: 12px; color: var(--text); }
+.mitre-chip .mcount { font-size: 11px; color: var(--text-dim); }
 </style>

@@ -29,6 +29,17 @@ function copyCmd(cmd) {
     </div>
     <div v-if="finding.detail" class="f-detail">{{ finding.detail }}</div>
 
+    <!-- ATT&CK / CIS tags -->
+    <div v-if="finding.mitre || finding.cis" class="f-tags">
+      <a v-if="finding.mitre" class="tag mitre"
+         :href="'https://attack.mitre.org/techniques/' + finding.mitre.replace('.', '/')"
+         target="_blank" rel="noopener"
+         :title="'MITRE ATT&CK ' + finding.mitre">
+        🎯 {{ finding.mitre }}<span v-if="finding.mitreNm"> · {{ finding.mitreNm }}</span>
+      </a>
+      <span v-if="finding.cis" class="tag cis">📐 {{ finding.cis }}</span>
+    </div>
+
     <!-- Detailed, ordered remediation steps -->
     <div v-if="finding.steps && finding.steps.length" class="f-solution">
       <div class="f-solution-head">🛠️ 解决方法</div>
@@ -68,4 +79,12 @@ function copyCmd(cmd) {
 }
 .f-copy:hover { background: var(--accent); color: #fff; }
 .f-ref { margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+.f-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
+.tag {
+  font-size: 11.5px; padding: 2px 8px; border-radius: 4px;
+  border: 1px solid var(--border); text-decoration: none;
+}
+.tag.mitre { background: rgba(239,68,68,.12); color: #fca5a5; }
+.tag.mitre:hover { background: rgba(239,68,68,.25); }
+.tag.cis { background: rgba(59,130,246,.12); color: #93c5fd; }
 </style>

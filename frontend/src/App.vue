@@ -33,7 +33,8 @@ const securityNav = [
   { id: 'network', icon: '🌐', name: '网络安全' },
   { id: 'startup', icon: '🚀', name: '启动项' },
   { id: 'uac', icon: '🔐', name: '用户账户控制' },
-  { id: 'shares', icon: '📁', name: '共享与远程' }
+  { id: 'shares', icon: '📁', name: '共享与远程' },
+  { id: 'hardening', icon: '🛠️', name: '安全基线' }
 ]
 
 const diagNav = [

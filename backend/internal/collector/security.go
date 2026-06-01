@@ -27,6 +27,7 @@ func securityModules() []moduleDef {
 		{"startup", "🚀", "启动项", "自启动程序检测", scanStartup},
 		{"uac", "🔐", "用户账户控制", "UAC 与安全策略检测", scanUAC},
 		{"shares", "📁", "共享与远程", "网络共享与远程访问检测", scanShares},
+		{"hardening", "🛠️", "安全基线", "CIS 基线与系统加固检测", scanHardening},
 	}
 }
 
@@ -68,7 +69,38 @@ func Security() models.SecurityResult {
 	res.Score = computeScore(allFindings)
 	res.RiskIcon, res.Risk, res.RiskDesc = riskBand(res.Score)
 	res.Summary = buildSecSummary(allFindings)
+	res.Mitre = buildMitreSummary(allFindings)
 	return res
+}
+
+// buildMitreSummary aggregates findings by MITRE ATT&CK technique so the UI
+// can present a coverage view (referenced in the requirements appendix 10.1).
+func buildMitreSummary(findings []models.Finding) []models.MitreHit {
+	idx := map[string]*models.MitreHit{}
+	order := []string{}
+	rank := map[string]int{
+		models.SevCritical: 4, models.SevHigh: 3, models.SevMedium: 2, models.SevLow: 1,
+	}
+	for _, f := range findings {
+		if f.Mitre == "" {
+			continue
+		}
+		h, ok := idx[f.Mitre]
+		if !ok {
+			h = &models.MitreHit{ID: f.Mitre, Name: f.MitreNm, Sev: f.Sev}
+			idx[f.Mitre] = h
+			order = append(order, f.Mitre)
+		}
+		h.Count++
+		if rank[f.Sev] > rank[h.Sev] {
+			h.Sev = f.Sev
+		}
+	}
+	out := make([]models.MitreHit, 0, len(order))
+	for _, id := range order {
+		out = append(out, *idx[id])
+	}
+	return out
 }
 
 // computeScore derives a 0-100 security score from finding severities.

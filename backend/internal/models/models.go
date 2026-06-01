@@ -21,6 +21,9 @@ type Finding struct {
 	Steps  []string `json:"steps"`  // ordered, detailed remediation steps
 	Cmd    string   `json:"cmd"`    // ready-to-run command (PowerShell/cmd)
 	Ref    string   `json:"ref"`    // optional reference / docs note
+	Mitre  string   `json:"mitre"`  // MITRE ATT&CK technique id, e.g. T1021.001
+	MitreNm string  `json:"mitreNm"` // MITRE technique name (zh)
+	CIS    string   `json:"cis"`    // related CIS Benchmark control reference
 }
 
 // SecurityModule describes a detection module and its discovered findings.
@@ -43,7 +46,16 @@ type SecurityResult struct {
 	Summary  map[string]string `json:"summary"`
 	Modules  []SecurityModule `json:"modules"`
 	Findings []Finding        `json:"findings"`
+	Mitre    []MitreHit       `json:"mitre"` // ATT&CK techniques matched by findings
 	ScanTime string           `json:"scanTime"`
+}
+
+// MitreHit summarises a MITRE ATT&CK technique triggered by one or more findings.
+type MitreHit struct {
+	ID    string `json:"id"`    // e.g. T1021.001
+	Name  string `json:"name"`  // technique name (zh)
+	Count int    `json:"count"` // how many findings mapped to it
+	Sev   string `json:"sev"`   // highest severity among them
 }
 
 // KV is a simple ordered key/value pair for display tables.

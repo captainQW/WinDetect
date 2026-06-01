@@ -32,7 +32,7 @@ func CSV(b Bundle) (string, error) {
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM so Excel reads Chinese correctly
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"类别", "时间", "级别", "模块", "描述", "详情", "解决方法", "命令"})
+	_ = w.Write([]string{"类别", "时间", "级别", "模块", "描述", "详情", "解决方法", "命令", "ATT&CK", "CIS"})
 
 	if b.Security != nil {
 		for _, f := range b.Security.Findings {
@@ -40,16 +40,20 @@ func CSV(b Bundle) (string, error) {
 			if len(f.Steps) > 0 {
 				fix = strings.Join(f.Steps, " / ")
 			}
-			_ = w.Write([]string{"安全", f.Time, sevName(f.Sev), f.Cat, f.Desc, f.Detail, fix, f.Cmd})
+			mitre := f.Mitre
+			if f.MitreNm != "" {
+				mitre = f.Mitre + " " + f.MitreNm
+			}
+			_ = w.Write([]string{"安全", f.Time, sevName(f.Sev), f.Cat, f.Desc, f.Detail, fix, f.Cmd, mitre, f.CIS})
 		}
 	}
 	if b.Diag != nil {
 		for _, d := range b.Diag.Warnings {
-			_ = w.Write([]string{"诊断", b.Diag.ScanTime, sevName(d.Sev), "系统诊断", d.Desc, d.Result, d.Fix, ""})
+			_ = w.Write([]string{"诊断", b.Diag.ScanTime, sevName(d.Sev), "系统诊断", d.Desc, d.Result, d.Fix, "", "", ""})
 		}
 		// Reliability events.
 		for _, e := range b.Diag.Reliability.Events {
-			_ = w.Write([]string{"可靠性", e.Time, sevName(e.Sev), e.Type, e.Source, e.Detail, e.Fix, ""})
+			_ = w.Write([]string{"可靠性", e.Time, sevName(e.Sev), e.Type, e.Source, e.Detail, e.Fix, "", "", ""})
 		}
 	}
 	w.Flush()
@@ -94,9 +98,16 @@ func HTML(b Bundle) string {
 		s := b.Security
 		sb.WriteString(`<h2>🔒 安全检测</h2>`)
 		sb.WriteString(fmt.Sprintf(`<p><span class="score">%d</span> / 100 — %s</p>`, s.Score, html.EscapeString(s.Risk)))
-		sb.WriteString(`<table><tr><th>时间</th><th>级别</th><th>模块</th><th>描述</th><th>详情</th><th>修复建议</th></tr>`)
+		if len(s.Mitre) > 0 {
+			parts := make([]string, 0, len(s.Mitre))
+			for _, m := range s.Mitre {
+				parts = append(parts, html.EscapeString(m.ID+" "+m.Name))
+			}
+			sb.WriteString(`<p><b>MITRE ATT&CK 映射：</b>` + strings.Join(parts, "、") + `</p>`)
+		}
+		sb.WriteString(`<table><tr><th>时间</th><th>级别</th><th>模块</th><th>描述</th><th>详情</th><th>ATT&CK</th><th>修复建议</th></tr>`)
 		if len(s.Findings) == 0 {
-			sb.WriteString(`<tr><td colspan="6" class="ok">未发现安全问题</td></tr>`)
+			sb.WriteString(`<tr><td colspan="7" class="ok">未发现安全问题</td></tr>`)
 		}
 		for _, f := range s.Findings {
 			sb.WriteString("<tr><td>" + html.EscapeString(f.Time) + "</td>")
@@ -104,7 +115,16 @@ func HTML(b Bundle) string {
 			sb.WriteString("<td>" + html.EscapeString(f.Cat) + "</td>")
 			sb.WriteString("<td>" + html.EscapeString(f.Desc) + "</td>")
 			sb.WriteString("<td>" + html.EscapeString(f.Detail) + "</td>")
-			sb.WriteString("<td>" + html.EscapeString(f.Fix) + "</td></tr>")
+			mitre := f.Mitre
+			if f.Mitre != "" && f.MitreNm != "" {
+				mitre = f.Mitre + " " + f.MitreNm
+			}
+			sb.WriteString("<td>" + html.EscapeString(mitre) + "</td>")
+			fix := f.Fix
+			if len(f.Steps) > 0 {
+				fix = strings.Join(f.Steps, "；")
+			}
+			sb.WriteString("<td>" + html.EscapeString(fix) + "</td></tr>")
 		}
 		sb.WriteString(`</table>`)
 	}
